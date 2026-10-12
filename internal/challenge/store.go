@@ -230,6 +230,7 @@ func (sess *Session) Submit(now time.Time, seq int, issue PassIssuer) (Outcome, 
 	// 未进行中：本次提交开启新一轮，该编号计为第一个。
 	if !sess.active {
 		prevRejected := sess.rejected
+		prevRejectAscending := sess.rejectAscending
 		sess.active = true
 		sess.deadline = now.Add(sess.window)
 		sess.collected = 1 << seq
@@ -241,9 +242,10 @@ func (sess *Session) Submit(now time.Time, seq int, issue PassIssuer) (Outcome, 
 		case prevTimedOut:
 			kind = KindRoundAfterTimeout
 		case prevRejected:
+			// 携带上一轮的拒绝方向，供响应文案说明具体原因。
 			kind = KindRoundAfterReject
 		}
-		return Outcome{Kind: kind, Seq: seq, Count: 1}, nil
+		return Outcome{Kind: kind, Seq: seq, Count: 1, RejectAscending: prevRejectAscending}, nil
 	}
 
 	// 重复编号：不计数、不追加序列、不延长截止时间。

@@ -127,10 +127,14 @@ func TestRejectAscendingAndDescenDing(t *testing.T) {
 				t.Fatalf("GET 中的拒绝方向错误: %v", st.RejectAscending)
 			}
 
-			// 下一个有效提交开启新一轮，拒绝时的最后一个编号不自动计入。
+			// 下一个有效提交开启新一轮，拒绝时的最后一个编号不自动计入，
+			// 且响应需携带上一轮的拒绝方向。
 			next := submit(t, store, sess, now.Add(time.Millisecond), tc.seqs[9])
 			if next.Kind != KindRoundAfterReject {
 				t.Fatalf("拒绝后的提交应开启新一轮，得到 %v", next.Kind)
+			}
+			if next.RejectAscending != tc.asc {
+				t.Fatalf("新轮次应保留上一轮拒绝方向 want=%v got=%v", tc.asc, next.RejectAscending)
 			}
 			if next.Count != 1 {
 				t.Fatalf("新轮次进度应为 1，得到 %d", next.Count)
