@@ -62,15 +62,23 @@ func NewRouter(d Deps) *gin.Engine {
 
 // ---- 中间件 ----
 
-// cors 对所有响应（含错误与 404/405）添加跨域头；
-// 不启用 Cookie 凭证模式。
+// cors 仅在请求携带 Origin 时输出跨域响应头：
+// 浏览器跨域场景（预检与实际/错误响应）行为不变；
+// curl 等无 Origin 的直连客户端得到干净的头。
+// 允许方法与请求头清单只在预检响应中出现，不污染普通响应。
 func cors() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if c.GetHeader("Origin") == "" {
+			c.Next()
+			return
+		}
 		h := c.Writer.Header()
 		h.Set("Access-Control-Allow-Origin", "*")
-		h.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 		h.Set("Access-Control-Expose-Headers", "X-Next-Step")
+		if c.Request.Method == http.MethodOptions {
+			h.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+		}
 		c.Next()
 	}
 }

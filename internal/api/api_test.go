@@ -42,8 +42,8 @@ func newStoreWithIssuer(cfg challenge.Config, tm *token.Manager) *challenge.Stor
 	return challenge.NewStore(cfg)
 }
 
-// do 发送请求并返回状态码、响应头与正文。
-func do(t *testing.T, method, url, auth, contentType, body string) (int, http.Header, string) {
+// do 发送请求并返回状态码、响应头与正文。可选携带 Origin 模拟浏览器跨域场景。
+func do(t *testing.T, method, url, auth, contentType, body string, origin ...string) (int, http.Header, string) {
 	t.Helper()
 	req, err := http.NewRequest(method, url, strings.NewReader(body))
 	if err != nil {
@@ -51,6 +51,9 @@ func do(t *testing.T, method, url, auth, contentType, body string) (int, http.He
 	}
 	if auth != "" {
 		req.Header.Set("Authorization", auth)
+	}
+	if len(origin) > 0 {
+		req.Header.Set("Origin", origin[0])
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
@@ -435,13 +438,18 @@ func TestConcurrentSubmissionsPassAndNoRace(t *testing.T) {
 func TestMethodAndRouteHandling(t *testing.T) {
 	ts, _, _ := newTestServer(t, nil)
 
-	// 未知路径 404，且带 CORS 头。
+	// 未知路径 404。无 Origin 的直连客户端不应携带 CORS 头。
 	status, h, body := do(t, "GET", ts.URL+"/nope", "", "", "")
 	if status != 404 || !strings.Contains(body, "从首页") {
 		t.Fatalf("未知路径应 404，得到 %d\n%s", status, body)
 	}
+	if h.Get("Access-Control-Allow-Origin") != "" {
+		t.Fatal("无 Origin 请求不应输出 CORS 头")
+	}
+	// 浏览器跨域访问 404 时仍可读到 CORS 头。
+	_, h, _ = do(t, "GET", ts.URL+"/nope", "", "", "", "http://example.com")
 	if h.Get("Access-Control-Allow-Origin") != "*" {
-		t.Fatal("404 响应也应携带 CORS 头")
+		t.Fatal("带 Origin 的 404 响应也应携带 CORS 头")
 	}
 
 	// 已知路径错误方法 405 + Allow。
@@ -454,21 +462,26 @@ func TestMethodAndRouteHandling(t *testing.T) {
 		t.Fatalf("DELETE 挑战接口应 405，得到 %d %q", status, h.Get("Allow"))
 	}
 
-	// 预检：204、无鉴权、不创建会话。
-	status, h, _ = do(t, "OPTIONS", ts.URL+"/api/challenge", "", "", "")
+	// 预检：204、无鉴权、不创建会话，仅预检携带完整 CORS 头。
+	status, h, _ = do(t, "OPTIONS", ts.URL+"/api/challenge", "", "", "", "http://example.com")
 	if status != 204 {
 		t.Fatalf("预检应 204，得到 %d", status)
 	}
 	if h.Get("Access-Control-Allow-Origin") != "*" ||
+		h.Get("Access-Control-Allow-Methods") != "GET, POST, OPTIONS" ||
 		h.Get("Access-Control-Allow-Headers") != "Authorization, Content-Type" ||
 		h.Get("Access-Control-Expose-Headers") != "X-Next-Step" {
 		t.Fatalf("预检 CORS 头不完整: %v", h)
 	}
 
 	// 无鉴权也能收到错误响应正文与 CORS 头（浏览器可读）。
-	status, h, body = do(t, "GET", ts.URL+"/api/challenge", "", "", "")
+	status, h, body = do(t, "GET", ts.URL+"/api/challenge", "", "", "", "http://example.com")
 	if status != 401 || h.Get("Access-Control-Allow-Origin") != "*" || !strings.Contains(body, "Authorization") {
 		t.Fatalf("鉴权失败响应应可被浏览器读取: %d\n%s", status, body)
+	}
+	// 跨域实际响应不携带预检专用头（减少污染）。
+	if h.Get("Access-Control-Allow-Methods") != "" || h.Get("Access-Control-Allow-Headers") != "" {
+		t.Fatal("实际响应不应携带预检专用 CORS 头")
 	}
 }
 
