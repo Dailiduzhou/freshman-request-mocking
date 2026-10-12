@@ -1,0 +1,10 @@
+.git
+.gitignore
+.agents
+.claude
+README.md
+project.md
+Dockerfile
+.dockerignore
+skills-lock.json
+cmd/solver
